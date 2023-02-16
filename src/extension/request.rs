@@ -30,6 +30,18 @@ impl From<CheckPin> for AuthRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct GetPinKey {
+    pub id: PinId,
+    pub pin: Pin,
+}
+
+impl From<GetPinKey> for AuthRequest {
+    fn from(request: GetPinKey) -> Self {
+        Self::GetPinKey(request)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SetPin {
     pub id: PinId,
     pub pin: Pin,

@@ -11,7 +11,7 @@ mod dispatch {
         service::ServiceResources,
         types::{Context, Location},
     };
-    use trussed_auth::{AuthBackend, AuthExtension};
+    use trussed_auth::{AuthBackend, AuthContext, AuthExtension};
 
     pub const BACKENDS: &[BackendId<Backend>] =
         &[BackendId::Custom(Backend::Auth), BackendId::Core];
@@ -47,6 +47,11 @@ mod dispatch {
         auth: AuthBackend,
     }
 
+    #[derive(Default)]
+    pub struct DispatchContext {
+        auth: AuthContext,
+    }
+
     impl Dispatch {
         pub fn new() -> Self {
             Self {
@@ -57,7 +62,7 @@ mod dispatch {
 
     impl<P: Platform> ExtensionDispatch<P> for Dispatch {
         type BackendId = Backend;
-        type Context = ();
+        type Context = DispatchContext;
         type ExtensionId = Extension;
 
         fn core_request(
@@ -68,9 +73,10 @@ mod dispatch {
             resources: &mut ServiceResources<P>,
         ) -> Result<Reply, Error> {
             match backend {
-                Backend::Auth => self
-                    .auth
-                    .request(&mut ctx.core, &mut (), request, resources),
+                Backend::Auth => {
+                    self.auth
+                        .request(&mut ctx.core, &mut ctx.backends.auth, request, resources)
+                }
             }
         }
 
@@ -86,7 +92,7 @@ mod dispatch {
                 Backend::Auth => match extension {
                     Extension::Auth => self.auth.extension_request_serialized(
                         &mut ctx.core,
-                        &mut (),
+                        &mut ctx.backends.auth,
                         request,
                         resources,
                     ),

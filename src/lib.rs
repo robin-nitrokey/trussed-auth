@@ -69,7 +69,7 @@ use trussed::{
     types::{Bytes, PathBuf},
 };
 
-pub use backend::AuthBackend;
+pub use backend::{AuthBackend, AuthContext};
 pub use extension::{
     reply, request, AuthClient, AuthExtension, AuthReply, AuthRequest, AuthResult,
 };
@@ -81,6 +81,7 @@ pub const MAX_PIN_LENGTH: usize = MAX_SHORT_DATA_LENGTH;
 pub type Pin = Bytes<MAX_PIN_LENGTH>;
 
 const PIN_PATH: &str = "backend/auth/pin";
+const SALT_PATH: &str = "backend/auth/salt";
 
 /// The ID of a PIN within the namespace of a client.
 ///

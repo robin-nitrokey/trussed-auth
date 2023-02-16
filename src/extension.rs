@@ -30,6 +30,7 @@ impl Extension for AuthExtension {
 pub enum AuthRequest {
     HasPin(request::HasPin),
     CheckPin(request::CheckPin),
+    GetPinKey(request::GetPinKey),
     SetPin(request::SetPin),
     DeletePin(request::DeletePin),
     DeleteAllPins(request::DeleteAllPins),
@@ -41,6 +42,7 @@ pub enum AuthRequest {
 pub enum AuthReply {
     HasPin(reply::HasPin),
     CheckPin(reply::CheckPin),
+    GetPinKey(reply::GetPinKey),
     SetPin(reply::SetPin),
     DeletePin(reply::DeletePin),
     DeleteAllPins(reply::DeleteAllPins),

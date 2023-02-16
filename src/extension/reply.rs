@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use serde::{Deserialize, Serialize};
-use trussed::error::{Error, Result};
+use trussed::{
+    error::{Error, Result},
+    types::KeyId,
+};
 
 use super::AuthReply;
 
@@ -38,6 +41,19 @@ pub struct CheckPin {
 impl From<CheckPin> for AuthReply {
     fn from(reply: CheckPin) -> Self {
         Self::CheckPin(reply)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[must_use]
+pub struct GetPinKey {
+    /// None means the check failed
+    pub result: Option<KeyId>,
+}
+
+impl From<GetPinKey> for AuthReply {
+    fn from(reply: GetPinKey) -> Self {
+        Self::GetPinKey(reply)
     }
 }
 
