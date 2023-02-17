@@ -23,7 +23,7 @@ use crate::{
     extension::{reply, AuthExtension, AuthReply, AuthRequest},
     PIN_PATH, SALT_PATH,
 };
-use data::{Key, PinData, Salt};
+use data::{Key, PinData, Salt, SALT_LEN};
 
 const MAX_HW_KEY_LEN: usize = 64;
 
@@ -80,7 +80,6 @@ impl AuthBackend {
         let path = PathBuf::from(SALT_PATH);
         trussed_filestore
             .read(&path, self.location)
-            .map(|d: Bytes<32>| (&**d).try_into().unwrap())
             .or_else(|_| {
                 if trussed_filestore
                     .metadata(&path, self.location)
@@ -89,13 +88,16 @@ impl AuthBackend {
                 {
                     return Err(Error::ReadFailed);
                 }
-                let mut salt = Salt::default();
-                rng.fill_bytes(&mut *salt);
+
+                let mut salt = Bytes::<SALT_LEN>::default();
+                salt.resize_to_capacity();
+                rng.fill_bytes(&mut salt);
                 trussed_filestore
-                    .write(&path, self.location, &*salt)
+                    .write(&path, self.location, &salt)
                     .or(Err(Error::WriteFailed))
                     .and(Ok(salt))
             })
+            .and_then(|b| (**b).try_into().or(Err(Error::ReadFailed)))
     }
 
     fn extract<R: CryptoRng + RngCore>(
@@ -117,8 +119,9 @@ impl AuthBackend {
 
     fn expand(kdf: &Hkdf<Sha256>, client_id: &PathBuf) -> Key {
         let mut out = Key::default();
+        #[allow(clippy::expect_used)]
         kdf.expand(client_id.as_ref().as_bytes(), &mut *out)
-            .unwrap();
+            .expect("Out data is always valid");
         out
     }
 

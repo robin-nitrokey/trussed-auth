@@ -18,11 +18,11 @@ use trussed::{
 use super::Error;
 use crate::{Pin, PinId, MAX_PIN_LENGTH};
 
-const SIZE: usize = 256;
-const CHACHA_TAG_LEN: usize = 16;
-const SALT_LEN: usize = 16;
-const HASH_LEN: usize = 32;
-const KEY_LEN: usize = 32;
+pub(crate) const SIZE: usize = 256;
+pub(crate) const CHACHA_TAG_LEN: usize = 16;
+pub(crate) const SALT_LEN: usize = 16;
+pub(crate) const HASH_LEN: usize = 32;
+pub(crate) const KEY_LEN: usize = 32;
 
 pub(crate) type Salt = ByteArray<SALT_LEN>;
 pub(crate) type Hash = ByteArray<HASH_LEN>;
@@ -69,9 +69,10 @@ impl PinData {
                 // The pin key is only ever used to once to wrap a key. Nonce reuse is not a concern
                 // Because the salt is also used in the key derivation process, PIN reuse across PINs will still lead to different keys
                 let nonce = Default::default();
+                #[allow(clippy::expect_used)]
                 let tag: [u8; CHACHA_TAG_LEN] = aead
                     .encrypt_in_place_detached(&nonce, &[u8::from(id)], &mut *key)
-                    .expect("Wrapping the key should always work")
+                    .expect("Wrapping the key should always work, length are acceptable")
                     .into();
 
                 KeyOrHash::Key {
@@ -231,7 +232,6 @@ impl<'a> PinDataMut<'a> {
         .and(Some(wrapped_key))
     }
 
-    #[must_use]
     pub fn get_pin_key(&mut self, pin: &Pin, application_key: &Key) -> Result<Option<Key>, Error> {
         match self.check_or_unwrap(pin, || Ok(*application_key))? {
             CheckResult::Validated => Err(Error::BadPinType),
@@ -289,7 +289,9 @@ fn hash(id: PinId, pin: &Pin, salt: &Salt) -> Hash {
 }
 
 fn derive_key(id: PinId, pin: &Pin, salt: &Salt, application_key: &[u8; 32]) -> Hash {
-    let mut hmac = Hmac::<Sha256>::new_from_slice(application_key).unwrap();
+    #[allow(clippy::expect_used)]
+    let mut hmac = Hmac::<Sha256>::new_from_slice(application_key)
+        .expect("Slice will always be of acceptable size");
     hmac.update(&[u8::from(id)]);
     hmac.update(&[pin_len(pin)]);
     hmac.update(pin);
