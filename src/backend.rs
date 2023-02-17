@@ -23,7 +23,7 @@ use crate::{
     extension::{reply, AuthExtension, AuthReply, AuthRequest},
     PIN_PATH, SALT_PATH,
 };
-use data::PinData;
+use data::{Key, PinData, Salt};
 
 const MAX_HW_KEY_LEN: usize = 64;
 
@@ -72,11 +72,11 @@ impl AuthBackend {
         }
     }
 
-    fn get_salt<R: CryptoRng + RngCore>(
+    fn get_global_salt<R: CryptoRng + RngCore>(
         &self,
         trussed_filestore: &mut impl Filestore,
         rng: &mut R,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<Salt, Error> {
         let path = PathBuf::from(SALT_PATH);
         trussed_filestore
             .read(&path, self.location)
@@ -89,10 +89,10 @@ impl AuthBackend {
                 {
                     return Err(Error::ReadFailed);
                 }
-                let mut salt = [0; 32];
-                rng.fill_bytes(&mut salt);
+                let mut salt = Salt::default();
+                rng.fill_bytes(&mut *salt);
                 trussed_filestore
-                    .write(&path, self.location, &salt)
+                    .write(&path, self.location, &*salt)
                     .or(Err(Error::WriteFailed))
                     .and(Ok(salt))
             })
@@ -105,8 +105,8 @@ impl AuthBackend {
         rng: &mut R,
     ) -> Result<&Hkdf<Sha256>, Error> {
         let ikm: &[u8] = ikm.as_deref().map(|i| &**i).unwrap_or(&[]);
-        let salt = self.get_salt(trussed_filestore, rng)?;
-        let kdf = Hkdf::new(Some(&salt), ikm);
+        let salt = self.get_global_salt(trussed_filestore, rng)?;
+        let kdf = Hkdf::new(Some(&*salt), ikm);
         self.hw_key = HardwareKey::Extracted(kdf);
         match &self.hw_key {
             HardwareKey::Extracted(kdf) => Ok(kdf),
@@ -115,9 +115,10 @@ impl AuthBackend {
         }
     }
 
-    fn expand(kdf: &Hkdf<Sha256>, client_id: &PathBuf) -> [u8; 32] {
-        let mut out = [0; 32];
-        kdf.expand(client_id.as_ref().as_bytes(), &mut out).unwrap();
+    fn expand(kdf: &Hkdf<Sha256>, client_id: &PathBuf) -> Key {
+        let mut out = Key::default();
+        kdf.expand(client_id.as_ref().as_bytes(), &mut *out)
+            .unwrap();
         out
     }
 
@@ -126,7 +127,7 @@ impl AuthBackend {
         client_id: PathBuf,
         trussed_filestore: &mut impl Filestore,
         rng: &mut R,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<Key, Error> {
         Ok(match &self.hw_key {
             HardwareKey::Extracted(okm) => Self::expand(okm, &client_id),
             HardwareKey::Raw(hw_k) => {
@@ -140,14 +141,13 @@ impl AuthBackend {
         })
     }
 
-    #[allow(unused)]
     fn get_app_key<R: CryptoRng + RngCore>(
         &mut self,
         client_id: PathBuf,
         trussed_filestore: &mut impl Filestore,
         ctx: &mut AuthContext,
         rng: &mut R,
-    ) -> Result<[u8; 32], Error> {
+    ) -> Result<Key, Error> {
         if let Some(app_key) = ctx.application_key {
             return Ok(app_key);
         }
@@ -161,7 +161,7 @@ impl AuthBackend {
 /// Per-client context for [`AuthBackend`][]
 #[derive(Default, Debug)]
 pub struct AuthContext {
-    application_key: Option<[u8; 32]>,
+    application_key: Option<Key>,
 }
 
 impl<P: Platform> Backend<P> for AuthBackend {
@@ -172,11 +172,14 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
     fn extension_request(
         &mut self,
         core_ctx: &mut CoreContext,
-        _ctx: &mut AuthContext,
+        ctx: &mut AuthContext,
         request: &AuthRequest,
         resources: &mut ServiceResources<P>,
     ) -> Result<AuthReply> {
         let fs = &mut resources.filestore(core_ctx);
+        let trussed_fs = &mut resources.trussed_filestore();
+        let rng = &mut resources.rng()?;
+        let client_id = core_ctx.path.clone();
         match request {
             AuthRequest::HasPin(request) => {
                 let has_pin = fs.exists(&request.id.path(), self.location);
@@ -186,17 +189,41 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
                 let success = PinData::load(fs, self.location, request.id)?.write(
                     fs,
                     self.location,
-                    |data| data.check_pin(&request.pin),
-                )?;
+                    |data| {
+                        data.check_pin(&request.pin, || {
+                            self.get_app_key(client_id, trussed_fs, ctx, rng)
+                        })
+                    },
+                )??;
                 Ok(reply::CheckPin { success }.into())
             }
-            AuthRequest::GetPinKey(_request) => {
+            AuthRequest::GetPinKey(request) => {
+                let application_key =
+                    self.get_app_key(core_ctx.path.clone(), trussed_fs, ctx, rng)?;
+                let verification = PinData::load(fs, self.location, request.id)?.write(
+                    fs,
+                    self.location,
+                    |data| data.get_pin_key(&request.pin, &application_key),
+                )??;
+                if verification.is_none() {
+                    return Ok(reply::GetPinKey { result: None }.into());
+                }
                 todo!()
             }
             AuthRequest::SetPin(request) => {
-                let mut rng = resources.rng().map_err(|_| Error::RngFailed)?;
-                PinData::new(request.id, &request.pin, request.retries, &mut rng)
-                    .save(fs, self.location)?;
+                let maybe_app_key = if request.derive_key {
+                    Some(self.get_app_key(client_id, trussed_fs, ctx, rng)?)
+                } else {
+                    None
+                };
+                PinData::new(
+                    request.id,
+                    &request.pin,
+                    request.retries,
+                    rng,
+                    maybe_app_key.as_ref(),
+                )
+                .save(fs, self.location)?;
                 Ok(reply::SetPin.into())
             }
             AuthRequest::DeletePin(request) => {
@@ -223,22 +250,22 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Error {
     NotFound,
-    RngFailed,
     ReadFailed,
     WriteFailed,
     DeserializationFailed,
     SerializationFailed,
+    BadPinType,
 }
 
 impl From<Error> for trussed::error::Error {
     fn from(error: Error) -> Self {
         match error {
             Error::NotFound => Self::NoSuchKey,
-            Error::RngFailed => Self::EntropyMalfunction,
             Error::ReadFailed => Self::FilesystemReadFailure,
             Error::WriteFailed => Self::FilesystemWriteFailure,
             Error::DeserializationFailed => Self::ImplementationError,
             Error::SerializationFailed => Self::ImplementationError,
+            Error::BadPinType => Self::MechanismInvalid,
         }
     }
 }

@@ -89,11 +89,13 @@ pub trait AuthClient: ExtensionClient<AuthExtension> {
         id: I,
         pin: Pin,
         retries: Option<u8>,
+        derive_key: bool,
     ) -> AuthResult<'_, reply::SetPin, Self> {
         self.extension(request::SetPin {
             id: id.into(),
             pin,
             retries,
+            derive_key,
         })
     }
 

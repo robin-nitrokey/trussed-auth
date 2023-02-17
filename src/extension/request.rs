@@ -46,6 +46,8 @@ pub struct SetPin {
     pub id: PinId,
     pub pin: Pin,
     pub retries: Option<u8>,
+    /// If true, the PIN can be used to wrap/unwrap an application key
+    pub derive_key: bool,
 }
 
 impl From<SetPin> for AuthRequest {
