@@ -80,6 +80,19 @@ pub trait AuthClient: ExtensionClient<AuthExtension> {
         self.extension(request::CheckPin { id: id.into(), pin })
     }
 
+    /// Returns a keyid if the provided PIN is correct and not blocked.
+    ///
+    /// The pin must have been created with `derive_key` set to true.
+    /// If the PIN is not correct and a retry counter is configured, the counter is decremented.
+    /// Once it reaches zero, authentication attempts for that PIN fail.  If the PIN with the given
+    /// ID is not set, an error is returned.
+    fn get_pin_key<I>(&mut self, id: I, pin: Pin) -> AuthResult<'_, reply::GetPinKey, Self>
+    where
+        I: Into<PinId>,
+    {
+        self.extension(request::GetPinKey { id: id.into(), pin })
+    }
+
     /// Sets the given PIN and resets its retry counter.
     ///
     /// If the retry counter is `None`, the number of retries is not limited and the PIN will never

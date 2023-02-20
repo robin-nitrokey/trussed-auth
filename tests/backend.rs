@@ -9,9 +9,9 @@ mod dispatch {
         platform::Platform,
         serde_extensions::{ExtensionDispatch, ExtensionId, ExtensionImpl as _},
         service::ServiceResources,
-        types::{Context, Location},
+        types::{Bytes, Context, Location},
     };
-    use trussed_auth::{AuthBackend, AuthContext, AuthExtension};
+    use trussed_auth::{AuthBackend, AuthContext, AuthExtension, MAX_HW_KEY_LEN};
 
     pub const BACKENDS: &[BackendId<Backend>] =
         &[BackendId::Custom(Backend::Auth), BackendId::Core];
@@ -56,6 +56,12 @@ mod dispatch {
         pub fn new() -> Self {
             Self {
                 auth: AuthBackend::new(Location::Internal),
+            }
+        }
+
+        pub fn with_hw_key(hw_key: Bytes<MAX_HW_KEY_LEN>) -> Self {
+            Self {
+                auth: AuthBackend::with_hw_key(Location::Internal, hw_key),
             }
         }
     }
@@ -111,13 +117,13 @@ mod dispatch {
 use rand_core::{OsRng, RngCore as _};
 use trussed::{
     backend::BackendId,
-    client::ClientImplementation,
+    client::{ClientImplementation, HmacSha256},
     service::Service,
     syscall, try_syscall,
     types::Bytes,
     virt::{self, Ram},
 };
-use trussed_auth::{AuthClient as _, PinId};
+use trussed_auth::{AuthClient as _, PinId, MAX_HW_KEY_LEN};
 
 use dispatch::{Backend, Dispatch, BACKENDS};
 
@@ -151,6 +157,21 @@ fn run<F: FnOnce(&mut Client)>(backends: &'static [BackendId<Backend>], f: F) {
         platform.run_client_with_backends("test", Dispatch::new(), backends, |mut client| {
             f(&mut client)
         })
+    })
+}
+
+fn run_with_hw_key<F: FnOnce(&mut Client)>(
+    backends: &'static [BackendId<Backend>],
+    hw_key: Bytes<{ MAX_HW_KEY_LEN }>,
+    f: F,
+) {
+    virt::with_platform(Ram::default(), |platform| {
+        platform.run_client_with_backends(
+            "test",
+            Dispatch::with_hw_key(hw_key),
+            backends,
+            |mut client| f(&mut client),
+        )
     })
 }
 
@@ -247,6 +268,94 @@ fn basic_wrapped() {
         let result = try_syscall!(client.pin_retries(Pin::User));
         assert!(result.is_err());
     })
+}
+
+#[test]
+fn hw_key_wrapped() {
+    run_with_hw_key(
+        BACKENDS,
+        Bytes::from_slice(b"Some HW ikm").unwrap(),
+        |client| {
+            let pin1 = Bytes::from_slice(b"12345678").unwrap();
+            let pin2 = Bytes::from_slice(b"123456").unwrap();
+
+            let reply = syscall!(client.has_pin(Pin::User));
+            assert!(!reply.has_pin);
+
+            syscall!(client.set_pin(Pin::User, pin1.clone(), None, true));
+
+            let reply = syscall!(client.has_pin(Pin::User));
+            assert!(reply.has_pin);
+            let reply = syscall!(client.has_pin(Pin::Admin));
+            assert!(!reply.has_pin);
+
+            let reply = syscall!(client.pin_retries(Pin::User));
+            assert_eq!(reply.retries, None);
+
+            let reply = syscall!(client.check_pin(Pin::User, pin1.clone()));
+            assert!(reply.success);
+
+            let reply = syscall!(client.pin_retries(Pin::User));
+            assert_eq!(reply.retries, None);
+
+            let reply = syscall!(client.check_pin(Pin::User, pin2));
+            assert!(!reply.success);
+
+            let result = try_syscall!(client.check_pin(Pin::Admin, pin1.clone()));
+            assert!(result.is_err());
+
+            let reply = syscall!(client.pin_retries(Pin::User));
+            assert_eq!(reply.retries, None);
+
+            syscall!(client.delete_pin(Pin::User));
+
+            let result = try_syscall!(client.check_pin(Pin::User, pin1));
+            assert!(result.is_err());
+
+            let result = try_syscall!(client.pin_retries(Pin::User));
+            assert!(result.is_err());
+        },
+    )
+}
+
+#[test]
+fn pin_key() {
+    run_with_hw_key(
+        BACKENDS,
+        Bytes::from_slice(b"Some HW ikm").unwrap(),
+        |client| {
+            let pin1 = Bytes::from_slice(b"12345678").unwrap();
+            let pin2 = Bytes::from_slice(b"123456").unwrap();
+
+            syscall!(client.set_pin(Pin::User, pin1.clone(), Some(3), true));
+            assert!(syscall!(client.get_pin_key(Pin::User, pin2.clone()))
+                .result
+                .is_none());
+            assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(2));
+            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(1));
+            assert!(syscall!(client.check_pin(Pin::User, pin1.clone())).success);
+            let key = syscall!(client.get_pin_key(Pin::User, pin1.clone()))
+                .result
+                .unwrap();
+            assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(3));
+            let mac = syscall!(client.sign_hmacsha256(key, b"Some data")).signature;
+            let key2 = syscall!(client.get_pin_key(Pin::User, pin1.clone()))
+                .result
+                .unwrap();
+            let mac2 = syscall!(client.sign_hmacsha256(key2, b"Some data")).signature;
+            assert_eq!(mac, mac2);
+
+            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
+            assert!(syscall!(client.get_pin_key(Pin::User, pin1.clone()))
+                .result
+                .is_none());
+            assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(0));
+        },
+    )
 }
 
 #[test]

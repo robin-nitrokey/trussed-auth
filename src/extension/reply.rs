@@ -44,6 +44,17 @@ impl From<CheckPin> for AuthReply {
     }
 }
 
+impl TryFrom<AuthReply> for CheckPin {
+    type Error = Error;
+
+    fn try_from(reply: AuthReply) -> Result<Self> {
+        match reply {
+            AuthReply::CheckPin(reply) => Ok(reply),
+            _ => Err(Error::InternalError),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[must_use]
 pub struct GetPinKey {
@@ -57,12 +68,12 @@ impl From<GetPinKey> for AuthReply {
     }
 }
 
-impl TryFrom<AuthReply> for CheckPin {
+impl TryFrom<AuthReply> for GetPinKey {
     type Error = Error;
 
     fn try_from(reply: AuthReply) -> Result<Self> {
         match reply {
-            AuthReply::CheckPin(reply) => Ok(reply),
+            AuthReply::GetPinKey(reply) => Ok(reply),
             _ => Err(Error::InternalError),
         }
     }

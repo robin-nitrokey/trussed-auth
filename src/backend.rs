@@ -11,9 +11,10 @@ use sha2::Sha256;
 use trussed::{
     backend::Backend,
     error::Result,
+    key::{Kind, Secrecy},
     platform::Platform,
     serde_extensions::ExtensionImpl,
-    service::ServiceResources,
+    service::{Keystore, ServiceResources},
     store::filestore::Filestore,
     types::{CoreContext, Location, PathBuf},
     Bytes,
@@ -23,7 +24,7 @@ use crate::{
     extension::{reply, AuthExtension, AuthReply, AuthRequest},
     PIN_PATH, SALT_PATH,
 };
-use data::{Key, PinData, Salt, SALT_LEN};
+use data::{Key, PinData, Salt, KEY_LEN, SALT_LEN};
 
 /// max accepted length for the hardware initial key material
 pub const MAX_HW_KEY_LEN: usize = 64;
@@ -180,6 +181,7 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
         let trussed_fs = &mut resources.trussed_filestore();
         let rng = &mut resources.rng()?;
         let client_id = core_ctx.path.clone();
+        let keystore = &mut resources.keystore(core_ctx)?;
         match request {
             AuthRequest::HasPin(request) => {
                 let has_pin = fs.exists(&request.id.path(), self.location);
@@ -205,10 +207,20 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
                     self.location,
                     |data| data.get_pin_key(&request.pin, &application_key),
                 )??;
-                if verification.is_none() {
-                    return Ok(reply::GetPinKey { result: None }.into());
+                if let Some(k) = verification {
+                    let key_id = keystore.store_key(
+                        Location::Volatile,
+                        Secrecy::Secret,
+                        Kind::Symmetric(KEY_LEN),
+                        &*k,
+                    )?;
+                    Ok(reply::GetPinKey {
+                        result: Some(key_id),
+                    }
+                    .into())
+                } else {
+                    Ok(reply::GetPinKey { result: None }.into())
                 }
-                todo!()
             }
             AuthRequest::SetPin(request) => {
                 let maybe_app_key = if request.derive_key {
