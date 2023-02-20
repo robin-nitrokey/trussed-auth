@@ -25,7 +25,8 @@ use crate::{
 };
 use data::{Key, PinData, Salt, SALT_LEN};
 
-const MAX_HW_KEY_LEN: usize = 64;
+/// max accepted length for the hardware initial key material
+pub const MAX_HW_KEY_LEN: usize = 64;
 
 #[derive(Clone)]
 enum HardwareKey {
@@ -81,11 +82,7 @@ impl AuthBackend {
         trussed_filestore
             .read(&path, self.location)
             .or_else(|_| {
-                if trussed_filestore
-                    .metadata(&path, self.location)
-                    .or(Err(Error::ReadFailed))?
-                    .is_some()
-                {
+                if trussed_filestore.exists(&path, self.location) {
                     return Err(Error::ReadFailed);
                 }
 

@@ -206,6 +206,50 @@ fn basic() {
 }
 
 #[test]
+fn basic_wrapped() {
+    run(BACKENDS, |client| {
+        let pin1 = Bytes::from_slice(b"12345678").unwrap();
+        let pin2 = Bytes::from_slice(b"123456").unwrap();
+
+        let reply = syscall!(client.has_pin(Pin::User));
+        assert!(!reply.has_pin);
+
+        syscall!(client.set_pin(Pin::User, pin1.clone(), None, true));
+
+        let reply = syscall!(client.has_pin(Pin::User));
+        assert!(reply.has_pin);
+        let reply = syscall!(client.has_pin(Pin::Admin));
+        assert!(!reply.has_pin);
+
+        let reply = syscall!(client.pin_retries(Pin::User));
+        assert_eq!(reply.retries, None);
+
+        let reply = syscall!(client.check_pin(Pin::User, pin1.clone()));
+        assert!(reply.success);
+
+        let reply = syscall!(client.pin_retries(Pin::User));
+        assert_eq!(reply.retries, None);
+
+        let reply = syscall!(client.check_pin(Pin::User, pin2));
+        assert!(!reply.success);
+
+        let result = try_syscall!(client.check_pin(Pin::Admin, pin1.clone()));
+        assert!(result.is_err());
+
+        let reply = syscall!(client.pin_retries(Pin::User));
+        assert_eq!(reply.retries, None);
+
+        syscall!(client.delete_pin(Pin::User));
+
+        let result = try_syscall!(client.check_pin(Pin::User, pin1));
+        assert!(result.is_err());
+
+        let result = try_syscall!(client.pin_retries(Pin::User));
+        assert!(result.is_err());
+    })
+}
+
+#[test]
 fn blocked_pin() {
     run(BACKENDS, |client| {
         let pin1 = Bytes::from_slice(b"12345678").unwrap();
