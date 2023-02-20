@@ -57,6 +57,19 @@ impl From<SetPin> for AuthRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ChangePin {
+    pub id: PinId,
+    pub old_pin: Pin,
+    pub new_pin: Pin,
+}
+
+impl From<ChangePin> for AuthRequest {
+    fn from(request: ChangePin) -> Self {
+        Self::ChangePin(request)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DeletePin {
     pub id: PinId,
 }

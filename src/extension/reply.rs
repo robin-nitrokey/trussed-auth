@@ -100,6 +100,28 @@ impl TryFrom<AuthReply> for SetPin {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ChangePin {
+    pub success: bool,
+}
+
+impl From<ChangePin> for AuthReply {
+    fn from(reply: ChangePin) -> Self {
+        Self::ChangePin(reply)
+    }
+}
+
+impl TryFrom<AuthReply> for ChangePin {
+    type Error = Error;
+
+    fn try_from(reply: AuthReply) -> Result<Self> {
+        match reply {
+            AuthReply::ChangePin(reply) => Ok(reply),
+            _ => Err(Error::InternalError),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DeletePin;
 
 impl From<DeletePin> for AuthReply {

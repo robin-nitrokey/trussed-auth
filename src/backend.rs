@@ -222,6 +222,21 @@ impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
                     Ok(reply::GetPinKey { result: None }.into())
                 }
             }
+            AuthRequest::ChangePin(request) => {
+                let success = PinData::load(fs, self.location, request.id)?.write(
+                    fs,
+                    self.location,
+                    |data| {
+                        data.change_pin(
+                            &request.old_pin,
+                            &request.new_pin,
+                            move |rng| self.get_app_key(client_id, trussed_fs, ctx, rng),
+                            rng,
+                        )
+                    },
+                )??;
+                Ok(reply::ChangePin { success }.into())
+            }
             AuthRequest::SetPin(request) => {
                 let maybe_app_key = if request.derive_key {
                     Some(self.get_app_key(client_id, trussed_fs, ctx, rng)?)

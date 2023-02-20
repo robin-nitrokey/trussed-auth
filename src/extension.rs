@@ -32,6 +32,7 @@ pub enum AuthRequest {
     CheckPin(request::CheckPin),
     GetPinKey(request::GetPinKey),
     SetPin(request::SetPin),
+    ChangePin(request::ChangePin),
     DeletePin(request::DeletePin),
     DeleteAllPins(request::DeleteAllPins),
     PinRetries(request::PinRetries),
@@ -44,6 +45,7 @@ pub enum AuthReply {
     CheckPin(reply::CheckPin),
     GetPinKey(reply::GetPinKey),
     SetPin(reply::SetPin),
+    ChangePin(reply::ChangePin),
     DeletePin(reply::DeletePin),
     DeleteAllPins(reply::DeleteAllPins),
     PinRetries(reply::PinRetries),
@@ -109,6 +111,22 @@ pub trait AuthClient: ExtensionClient<AuthExtension> {
             pin,
             retries,
             derive_key,
+        })
+    }
+
+    /// Change the given PIN and resets its retry counter.
+    ///
+    /// The key obtained by [`get_pin_key`](AuthClient::get_pin_key) will stay the same
+    fn change_pin<I: Into<PinId>>(
+        &mut self,
+        id: I,
+        old_pin: Pin,
+        new_pin: Pin,
+    ) -> AuthResult<'_, reply::ChangePin, Self> {
+        self.extension(request::ChangePin {
+            id: id.into(),
+            old_pin,
+            new_pin,
         })
     }
 

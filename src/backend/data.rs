@@ -143,13 +143,13 @@ pub(crate) struct PinDataMut<'a> {
 
 enum CheckResult {
     Validated,
-    Derived(Key),
+    Derived { k: Key, app_key: Key },
     Failed,
 }
 
 impl CheckResult {
     fn is_success(&self) -> bool {
-        matches!(self, CheckResult::Validated | CheckResult::Derived(_))
+        matches!(self, CheckResult::Validated | CheckResult::Derived { .. })
     }
 }
 
@@ -178,8 +178,9 @@ impl<'a> PinDataMut<'a> {
                 }
             }
             KeyOrHash::Key { wrapped_key, tag } => {
-                if let Some(k) = self.unwrap_key(pin, &application_key()?, wrapped_key, &tag) {
-                    CheckResult::Derived(k)
+                let app_key = application_key()?;
+                if let Some(k) = self.unwrap_key(pin, &app_key, wrapped_key, &tag) {
+                    CheckResult::Derived { k, app_key }
                 } else {
                     CheckResult::Failed
                 }
@@ -235,8 +236,80 @@ impl<'a> PinDataMut<'a> {
     pub fn get_pin_key(&mut self, pin: &Pin, application_key: &Key) -> Result<Option<Key>, Error> {
         match self.check_or_unwrap(pin, || Ok(*application_key))? {
             CheckResult::Validated => Err(Error::BadPinType),
-            CheckResult::Derived(k) => Ok(Some(k)),
+            CheckResult::Derived { k, .. } => Ok(Some(k)),
             CheckResult::Failed => Ok(None),
+        }
+    }
+
+    fn new_normal_pin<R: CryptoRng + RngCore>(
+        &mut self,
+        new: &Pin,
+        rng: &mut R,
+    ) -> Result<(), Error> {
+        *self.data = PinData::new(
+            self.data.id,
+            new,
+            self.data.retries.map(|r| r.max),
+            rng,
+            None,
+        );
+        Ok(())
+    }
+
+    fn new_wrapping_pin<R: CryptoRng + RngCore>(
+        &mut self,
+        new: &Pin,
+        mut old_key: Key,
+        application_key: &Key,
+        rng: &mut R,
+    ) {
+        use chacha20poly1305::{AeadInPlace, KeyInit};
+        let mut salt = Salt::default();
+        rng.fill_bytes(&mut *salt);
+
+        let pin_key = derive_key(self.id, new, &salt, application_key);
+
+        let aead = ChaCha8Poly1305::new((&*pin_key).into());
+        // The pin key is only ever used to once to wrap a key. Nonce reuse is not a concern
+        // Because the salt is also used in the key derivation process, PIN reuse across PINs will still lead to different keys
+        let nonce = Default::default();
+
+        #[allow(clippy::expect_used)]
+        let tag: [u8; CHACHA_TAG_LEN] = aead
+            .encrypt_in_place_detached(&nonce, &[u8::from(self.id)], &mut *old_key)
+            .expect("Wrapping the key should always work, length are acceptable")
+            .into();
+
+        *self.data = PinData {
+            id: self.id,
+            retries: self.retries,
+            salt,
+            data: KeyOrHash::Key {
+                wrapped_key: old_key,
+                tag: tag.into(),
+            },
+        };
+    }
+
+    pub fn change_pin<R: CryptoRng + RngCore>(
+        &mut self,
+        old_pin: &Pin,
+        new_pin: &Pin,
+        application_key: impl FnOnce(&mut R) -> Result<Key, Error>,
+        rng: &mut R,
+    ) -> Result<bool, Error> {
+        match self.check_or_unwrap(old_pin, || application_key(rng))? {
+            CheckResult::Validated => {
+                self.new_normal_pin(new_pin, rng)?;
+                self.modified = true;
+                Ok(true)
+            }
+            CheckResult::Derived { k, app_key } => {
+                self.new_wrapping_pin(new_pin, k, &app_key, rng);
+                self.modified = true;
+                Ok(true)
+            }
+            CheckResult::Failed => Ok(false),
         }
     }
 }

@@ -346,11 +346,19 @@ fn pin_key() {
             let mac2 = syscall!(client.sign_hmacsha256(key2, b"Some data")).signature;
             assert_eq!(mac, mac2);
 
-            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
-            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
-            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert!(syscall!(client.change_pin(Pin::User, pin1.clone(), pin2.clone())).success);
+
+            let key3 = syscall!(client.get_pin_key(Pin::User, pin2.clone()))
+                .result
+                .unwrap();
+            let mac3 = syscall!(client.sign_hmacsha256(key3, b"Some data")).signature;
+            assert_eq!(mac, mac3);
+
             assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
-            assert!(syscall!(client.get_pin_key(Pin::User, pin1.clone()))
+            assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
+            assert!(syscall!(client.get_pin_key(Pin::User, pin2.clone()))
                 .result
                 .is_none());
             assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(0));
