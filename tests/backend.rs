@@ -356,9 +356,9 @@ fn pin_key() {
 
             assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
             assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
-            assert!(!syscall!(client.check_pin(Pin::User, pin1.clone())).success);
+            assert!(!syscall!(client.check_pin(Pin::User, pin1)).success);
             assert!(!syscall!(client.check_pin(Pin::User, pin2.clone())).success);
-            assert!(syscall!(client.get_pin_key(Pin::User, pin2.clone()))
+            assert!(syscall!(client.get_pin_key(Pin::User, pin2))
                 .result
                 .is_none());
             assert_eq!(syscall!(client.pin_retries(Pin::User)).retries, Some(0));
