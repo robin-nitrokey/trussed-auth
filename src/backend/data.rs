@@ -30,8 +30,14 @@ pub(crate) type ChaChaTag = ByteArray<CHACHA_TAG_LEN>;
 pub(crate) type Key = ByteArray<KEY_LEN>;
 
 #[derive(Debug, Deserialize, Serialize)]
+struct WrappedKeyData {
+    wrapped_key: Key,
+    tag: ChaChaTag,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 enum KeyOrHash {
-    Key { wrapped_key: Key, tag: ChaChaTag },
+    Key(WrappedKeyData),
     Hash(Hash),
 }
 
@@ -75,10 +81,10 @@ impl PinData {
                     .expect("Wrapping the key should always work, length are acceptable")
                     .into();
 
-                KeyOrHash::Key {
+                KeyOrHash::Key(WrappedKeyData {
                     wrapped_key: key,
                     tag: tag.into(),
-                }
+                })
             })
             .unwrap_or_else(|| KeyOrHash::Hash(hash(id, pin, &salt)));
         Self {
@@ -177,7 +183,7 @@ impl<'a> PinDataMut<'a> {
                     CheckResult::Failed
                 }
             }
-            KeyOrHash::Key { wrapped_key, tag } => {
+            KeyOrHash::Key(WrappedKeyData { wrapped_key, tag }) => {
                 let app_key = application_key()?;
                 if let Some(k) = self.unwrap_key(pin, &app_key, wrapped_key, &tag) {
                     CheckResult::Derived { k, app_key }
@@ -284,10 +290,10 @@ impl<'a> PinDataMut<'a> {
             id: self.id,
             retries: self.retries,
             salt,
-            data: KeyOrHash::Key {
+            data: KeyOrHash::Key(WrappedKeyData {
                 wrapped_key: old_key,
                 tag: tag.into(),
-            },
+            }),
         };
     }
 
