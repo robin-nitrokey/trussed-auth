@@ -66,12 +66,12 @@ mod dispatch {
         }
     }
 
-    impl<P: Platform> ExtensionDispatch<P> for Dispatch {
+    impl ExtensionDispatch for Dispatch {
         type BackendId = Backend;
         type Context = DispatchContext;
         type ExtensionId = Extension;
 
-        fn core_request(
+        fn core_request<P: Platform>(
             &mut self,
             backend: &Self::BackendId,
             ctx: &mut Context<Self::Context>,
@@ -86,7 +86,7 @@ mod dispatch {
             }
         }
 
-        fn extension_request(
+        fn extension_request<P: Platform>(
             &mut self,
             backend: &Self::BackendId,
             extension: &Self::ExtensionId,

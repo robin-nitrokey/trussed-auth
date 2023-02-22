@@ -165,12 +165,12 @@ pub struct AuthContext {
     application_key: Option<Key>,
 }
 
-impl<P: Platform> Backend<P> for AuthBackend {
+impl Backend for AuthBackend {
     type Context = AuthContext;
 }
 
-impl<P: Platform> ExtensionImpl<AuthExtension, P> for AuthBackend {
-    fn extension_request(
+impl ExtensionImpl<AuthExtension> for AuthBackend {
+    fn extension_request<P: Platform>(
         &mut self,
         core_ctx: &mut CoreContext,
         ctx: &mut AuthContext,
