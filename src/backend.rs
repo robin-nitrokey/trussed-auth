@@ -64,6 +64,7 @@ impl AuthBackend {
             hw_key: HardwareKey::None,
         }
     }
+
     /// Creates a new `AuthBackend` with a given key.
     ///
     /// This key is used to strengthen key generation from the pins

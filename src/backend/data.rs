@@ -29,6 +29,82 @@ pub(crate) type Hash = ByteArray<HASH_LEN>;
 pub(crate) type ChaChaTag = ByteArray<CHACHA_TAG_LEN>;
 pub(crate) type Key = ByteArray<KEY_LEN>;
 
+/// Represent a key wrapped by the pin.
+/// The key derivation process is as follow (pseudocode):
+///
+/// ```rust,compile_fail
+/// // length depends on hardware
+/// let device_ikm: [u8]= values_from_hardware();
+///
+/// // generated on first power-up, stays constant for the lifetime of the device
+/// let device_salt: [u8;32] = csprng();
+///
+/// // The salt is useful for the security proof of HKDF
+/// let device_prk = hkdf_extract(salt: device_salt, ikm: device_ikm);
+///
+/// fn get_app_key(app_id) {
+///     // Domain separation between the apps
+///     // This means the `app_key` can also be used for purposes other than Pin key derivation.
+///     return hkdf_expand(prk: device_prk, info: app_id, output_len: 32);
+/// }
+///
+/// fn register_pin(app_id, pin_id, pin) {
+///     let app_key = get_app_key(app_id);
+///     let salt = csprng();
+///     let key_to_be_wrapped = csprng();
+///
+///     // Get a pseudo-random key from the pin and the salt
+///     //
+///     // This is fine because app_key is uniform, therefore pin_key is too
+///     // because HMAC is a PRF
+///     //
+///     // We can't use PBKDF or argon2 here because of limited hardware.
+///     // Ideally such a step would be done on the host
+///     //
+///     // `pin_kek` is never stored
+///     let pin_kek = HMAC(key: app_key, pin_id || len(pin) || pin || salt);
+///
+///     // On pin creation or change, the key is wrapped and stored on a persistent filesystem
+///     // The constant nonce is acceptable and won't lead to nonce reuse because the `pin_kek` is only used to encrypt this data once
+///     //
+///     // Any change of pin changes also changes the salt
+///     // which means that it is not possible to get the `pin_kek` twice
+///     let wrapped_key = aead_encrypt(key: pin_kek, data: key_to_be_wrapped, nonce: [0;12]);
+///
+///     // wrapped_key is represented by the WrappedKeyData struct
+///
+///     to_presistent_storage(salt, wrapped_key);
+/// }
+///
+/// fn get_pin_key(app_id, pin_id, pin) {
+///     let app_key = get_app_key(app_id);
+///     let (salt, wrapped_key) = from_persistent_storage();
+///
+///     // re-derive the pin kek
+///     let pin_kek = HMAC(key: app_key, pin_id || len(pin) || pin || salt);
+///
+///     // Unwrap the key
+///     let unwrapped_key = aead_decrypt(key: pin_kek, data: wrapped_key , nonce: [0;12])
+///     return unwrapped_key;
+/// }
+///
+///
+/// fn change_pin(app_id, pin_id, old_pin, new_pin) {
+///     let app_key = get_app_key(app_id);
+///     let key_to_be_wrapped = get_pin_key(app_id, pin_id, pin);
+///
+///     // The procedure is the same as for `register_pin` but it reuses the `key_to_be_wrapped` instead of generating it
+///
+///     // Generate a new salt for the new pin
+///     let salt = csprng();
+///
+///     let pin_kek = HMAC(key: app_key, pin_id || len(new_pin) || new_pin || salt);
+///
+///     let wrapped_key = aead_encrypt(key: pin_kek, data: key_to_be_wrapped, nonce: [0;12]);
+///
+///     to_presistent_storage(salt, wrapped_key);
+/// }
+/// ````
 #[derive(Debug, Deserialize, Serialize)]
 struct WrappedKeyData {
     wrapped_key: Key,
