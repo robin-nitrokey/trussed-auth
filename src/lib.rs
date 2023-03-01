@@ -1,7 +1,7 @@
 // Copyright (C) Nitrokey GmbH
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-// #![no_std]
+#![no_std]
 #![warn(
     missing_debug_implementations,
     missing_docs,
