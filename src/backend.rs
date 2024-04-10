@@ -280,7 +280,7 @@ impl ExtensionImpl<AuthExtension> for AuthBackend {
                     let key_id = keystore.store_key(
                         Location::Volatile,
                         Secrecy::Secret,
-                        Kind::Symmetric(KEY_LEN),
+                        Kind::Symmetric(KEY_LEN).into(),
                         &*k,
                     )?;
                     Ok(reply::GetPinKey {
@@ -378,7 +378,7 @@ impl ExtensionImpl<AuthExtension> for AuthBackend {
                 let key_id = keystore.store_key(
                     Location::Volatile,
                     Secrecy::Secret,
-                    Kind::Symmetric(KEY_LEN),
+                    Kind::Symmetric(KEY_LEN).into(),
                     &*key,
                 )?;
                 Ok(reply::GetApplicationKey { key: key_id }.into())
